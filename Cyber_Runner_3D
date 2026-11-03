@@ -1,0 +1,330 @@
+
+from ursina import *
+import random
+
+app = Ursina()
+
+window.title = "CYBER RUNNER 3D"
+window.borderless = False
+window.fullscreen = False
+window.color = color.rgb(5, 5, 20)
+
+# -------------------- SETTINGS --------------------
+
+LANES = [-2.5, 0, 2.5]
+
+player_lane = 1
+player_y = 1
+player_velocity_y = 0
+
+gravity = 18
+jump_strength = 8
+
+game_speed = 12
+score = 0
+game_over = False
+
+spawn_timer = 0
+spawn_delay = 1.5
+
+# -------------------- LIGHTING --------------------
+
+DirectionalLight(
+    y=10,
+    z=-5,
+    rotation=(45, -45, 45)
+)
+
+AmbientLight(color=color.rgba(100, 100, 150, 255))
+
+# -------------------- CAMERA --------------------
+
+camera.position = (0, 8, -16)
+camera.rotation_x = 20
+camera.fov = 90
+
+# -------------------- ENVIRONMENT --------------------
+
+Sky(color=color.rgb(8, 8, 30))
+
+# Ground
+ground = Entity(
+    model='plane',
+    scale=(12, 1, 200),
+    position=(0, 0, 50),
+    color=color.rgb(20, 20, 40),
+    collider='box'
+)
+
+# Neon lane markings
+lane_lines = []
+
+for x in [-1.25, 1.25]:
+    line = Entity(
+        model='cube',
+        position=(x, 0.03, 50),
+        scale=(0.05, 0.05, 200),
+        color=color.cyan
+    )
+
+    lane_lines.append(line)
+
+# -------------------- PLAYER --------------------
+
+player = Entity(
+    model='cube',
+    color=color.azure,
+    scale=(0.8, 1.8, 0.8),
+    position=(0, 1, 0),
+    collider='box'
+)
+
+# Player glow decoration
+player_glow = Entity(
+    model='cube',
+    color=color.rgba(0, 200, 255, 100),
+    scale=(1.1, 2, 1.1),
+    position=player.position
+)
+
+# -------------------- GAME OBJECTS --------------------
+
+obstacles = []
+orbs = []
+
+# -------------------- UI --------------------
+
+score_text = Text(
+    text="SCORE: 0",
+    position=(-0.85, 0.45),
+    scale=2,
+    color=color.cyan
+)
+
+instructions = Text(
+    text="A/D or LEFT/RIGHT: Move   SPACE: Jump",
+    position=(-0.65, -0.45),
+    scale=1,
+    color=color.white
+)
+
+game_over_text = Text(
+    text="",
+    origin=(0, 0),
+    position=(0, 0.1),
+    scale=3,
+    color=color.red
+)
+
+restart_text = Text(
+    text="",
+    origin=(0, 0),
+    position=(0, -0.1),
+    scale=1.5,
+    color=color.white
+)
+
+# -------------------- FUNCTIONS --------------------
+
+def spawn_obstacle():
+    lane = random.choice(LANES)
+
+    obstacle = Entity(
+        model='cube',
+        color=color.rgb(255, 40, 100),
+        scale=(
+            random.uniform(0.8, 1.2),
+            random.uniform(1.5, 2.5),
+            1
+        ),
+        position=(lane, 1, 60),
+        collider='box'
+    )
+
+    obstacles.append(obstacle)
+
+
+def spawn_orb():
+    lane = random.choice(LANES)
+
+    orb = Entity(
+        model='sphere',
+        color=color.yellow,
+        scale=0.5,
+        position=(lane, 1.5, 60),
+        collider='sphere'
+    )
+
+    orbs.append(orb)
+
+
+def move_player():
+    global player_lane
+
+    if held_keys['a'] or held_keys['left arrow']:
+        player_lane = max(0, player_lane - 1)
+        held_keys['a'] = 0
+        held_keys['left arrow'] = 0
+
+    if held_keys['d'] or held_keys['right arrow']:
+        player_lane = min(2, player_lane + 1)
+        held_keys['d'] = 0
+        held_keys['right arrow'] = 0
+
+
+def input(key):
+    global player_velocity_y
+
+    if key == 'space' and player.y <= 1.05 and not game_over:
+        player_velocity_y = jump_strength
+
+    if key == 'r' and game_over:
+        restart_game()
+
+
+def end_game():
+    global game_over
+
+    game_over = True
+
+    game_over_text.text = "GAME OVER"
+    restart_text.text = "Press R to restart"
+
+
+def restart_game():
+    global player_lane, player_y, player_velocity_y
+    global game_speed, score, game_over
+    global spawn_timer, spawn_delay
+
+    for obstacle in obstacles:
+        destroy(obstacle)
+
+    for orb in orbs:
+        destroy(orb)
+
+    obstacles.clear()
+    orbs.clear()
+
+    player_lane = 1
+    player_y = 1
+    player_velocity_y = 0
+
+    player.position = (0, 1, 0)
+    player_glow.position = player.position
+
+    game_speed = 12
+    score = 0
+    spawn_timer = 0
+    spawn_delay = 1.5
+
+    game_over = False
+
+    game_over_text.text = ""
+    restart_text.text = ""
+
+    score_text.text = "SCORE: 0"
+
+
+# -------------------- MAIN UPDATE --------------------
+
+def update():
+    global player_y, player_velocity_y
+    global spawn_timer, score, game_speed
+
+    if game_over:
+        return
+
+    dt = time.dt
+
+    # Move player between lanes smoothly
+    target_x = LANES[player_lane]
+
+    player.x = lerp(
+        player.x,
+        target_x,
+        dt * 10
+    )
+
+    # Jump physics
+    player_velocity_y -= gravity * dt
+    player_y += player_velocity_y * dt
+
+    if player_y <= 1:
+        player_y = 1
+        player_velocity_y = 0
+
+    player.y = player_y
+    player_glow.position = player.position
+
+    # Increase difficulty
+    game_speed += dt * 0.15
+
+    # Spawn objects
+    spawn_timer += dt
+
+    if spawn_timer >= spawn_delay:
+        spawn_timer = 0
+
+        if random.random() < 0.7:
+            spawn_obstacle()
+        else:
+            spawn_orb()
+
+        spawn_delay = max(
+            0.5,
+            1.5 - score / 1000
+        )
+
+    # Move obstacles
+    for obstacle in obstacles[:]:
+        obstacle.z -= game_speed * dt
+
+        obstacle.rotation_y += 80 * dt
+
+        # Collision detection
+        if distance(player.position, obstacle.position) < 1.2:
+            end_game()
+            return
+
+        # Remove objects behind player
+        if obstacle.z < -10:
+            obstacles.remove(obstacle)
+            destroy(obstacle)
+
+            score += 10
+
+    # Move energy orbs
+    for orb in orbs[:]:
+        orb.z -= game_speed * dt
+
+        orb.rotation_y += 150 * dt
+
+        if distance(player.position, orb.position) < 1.3:
+            orbs.remove(orb)
+            destroy(orb)
+
+            score += 50
+
+        elif orb.z < -10:
+            orbs.remove(orb)
+            destroy(orb)
+
+    # Move ground markings
+    ground.z -= game_speed * dt
+
+    if ground.z < -50:
+        ground.z = 50
+
+    for line in lane_lines:
+        line.z -= game_speed * dt
+
+        if line.z < -50:
+            line.z = 50
+
+    # HUD
+    score_text.text = f"SCORE: {score}"
+
+
+# -------------------- RUN --------------------
+
+app.run()
