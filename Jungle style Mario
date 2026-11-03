@@ -1,0 +1,519 @@
+
+import pygame
+import random
+import sys
+
+pygame.init()
+
+# ---------------- SETTINGS ----------------
+
+WIDTH, HEIGHT = 900, 600
+FPS = 60
+
+screen = pygame.display.set_mode((WIDTH, HEIGHT))
+pygame.display.set_caption("Pixel Jungle Run")
+
+clock = pygame.time.Clock()
+
+# Colors
+SKY = (120, 200, 255)
+GREEN = (45, 170, 70)
+DARK_GREEN = (25, 100, 45)
+BROWN = (120, 75, 40)
+YELLOW = (255, 220, 50)
+RED = (230, 60, 60)
+WHITE = (255, 255, 255)
+BLACK = (20, 20, 20)
+BLUE = (50, 100, 240)
+
+font = pygame.font.SysFont("consolas", 24)
+big_font = pygame.font.SysFont("consolas", 48, bold=True)
+
+# World
+WORLD_WIDTH = 5000
+GROUND_Y = 520
+
+# Player
+player = pygame.Rect(100, 400, 36, 48)
+velocity_y = 0
+speed = 5
+jump_power = -15
+gravity = 0.7
+on_ground = False
+
+# Camera
+camera_x = 0
+
+# Game state
+score = 0
+lives = 3
+game_over = False
+won = False
+
+# ---------------- LEVEL ----------------
+
+platforms = []
+gems = []
+spikes = []
+enemies = []
+
+# Generate platforms
+for x in range(300, WORLD_WIDTH - 300, 350):
+
+    platform_y = random.choice([350, 400, 430])
+
+    platform = pygame.Rect(
+        x,
+        platform_y,
+        random.randint(120, 200),
+        25
+    )
+
+    platforms.append(platform)
+
+    # Gems above platform
+    gems.append(
+        pygame.Rect(
+            platform.x + platform.width // 2,
+            platform.y - 35,
+            20,
+            20
+        )
+    )
+
+    # Occasional enemy
+    if random.random() < 0.6:
+        enemies.append({
+            "rect": pygame.Rect(
+                platform.x + 30,
+                platform.y - 35,
+                35,
+                35
+            ),
+            "direction": 1,
+            "left": platform.x,
+            "right": platform.right
+        })
+
+# Ground spikes
+for x in range(600, WORLD_WIDTH - 200, 700):
+    spikes.append(
+        pygame.Rect(x, GROUND_Y - 30, 40, 30)
+    )
+
+# ---------------- FUNCTIONS ----------------
+
+def draw_player(rect):
+    # Head
+    pygame.draw.rect(
+        screen,
+        (255, 190, 130),
+        (rect.x, rect.y, rect.width, 20)
+    )
+
+    # Jungle cap
+    pygame.draw.rect(
+        screen,
+        GREEN,
+        (rect.x - 3, rect.y - 5, rect.width + 6, 10)
+    )
+
+    # Body
+    pygame.draw.rect(
+        screen,
+        BLUE,
+        (rect.x, rect.y + 20, rect.width, 18)
+    )
+
+    # Legs
+    pygame.draw.rect(
+        screen,
+        BROWN,
+        (rect.x + 3, rect.y + 38, 12, 10)
+    )
+
+    pygame.draw.rect(
+        screen,
+        BROWN,
+        (rect.x + 21, rect.y + 38, 12, 10)
+    )
+
+    # Eye
+    pygame.draw.circle(
+        screen,
+        BLACK,
+        (rect.x + 27, rect.y + 10),
+        3
+    )
+
+
+def draw_gem(rect):
+    points = [
+        (rect.centerx, rect.top),
+        (rect.right, rect.centery),
+        (rect.centerx, rect.bottom),
+        (rect.left, rect.centery)
+    ]
+
+    pygame.draw.polygon(
+        screen,
+        YELLOW,
+        points
+    )
+
+    pygame.draw.polygon(
+        screen,
+        WHITE,
+        points,
+        2
+    )
+
+
+def draw_enemy(rect):
+    pygame.draw.rect(
+        screen,
+        RED,
+        rect,
+        border_radius=8
+    )
+
+    pygame.draw.circle(
+        screen,
+        WHITE,
+        (rect.x + 10, rect.y + 12),
+        5
+    )
+
+    pygame.draw.circle(
+        screen,
+        WHITE,
+        (rect.x + 25, rect.y + 12),
+        5
+    )
+
+
+def draw_spike(rect):
+    points = [
+        (rect.left, rect.bottom),
+        (rect.centerx, rect.top),
+        (rect.right, rect.bottom)
+    ]
+
+    pygame.draw.polygon(
+        screen,
+        RED,
+        points
+    )
+
+
+def draw_world():
+    screen.fill(SKY)
+
+    # Background jungle trees
+    for x in range(0, WORLD_WIDTH, 250):
+        tree_x = x - camera_x
+
+        pygame.draw.rect(
+            screen,
+            BROWN,
+            (tree_x + 35, 300, 30, 220)
+        )
+
+        pygame.draw.circle(
+            screen,
+            DARK_GREEN,
+            (tree_x + 50, 280),
+            75
+        )
+
+    # Ground
+    pygame.draw.rect(
+        screen,
+        GREEN,
+        (0, GROUND_Y - 10, WIDTH, 20)
+    )
+
+    pygame.draw.rect(
+        screen,
+        BROWN,
+        (0, GROUND_Y + 10, WIDTH, HEIGHT)
+    )
+
+    # Platforms
+    for platform in platforms:
+        visible = platform.move(-camera_x, 0)
+
+        pygame.draw.rect(
+            screen,
+            GREEN,
+            visible
+        )
+
+        pygame.draw.rect(
+            screen,
+            BROWN,
+            (
+                visible.x,
+                visible.y + 10,
+                visible.width,
+                visible.height
+            )
+        )
+
+
+def reset_game():
+    global player, velocity_y
+    global score, lives, camera_x
+    global game_over, won
+
+    player.x = 100
+    player.y = 400
+
+    velocity_y = 0
+    score = 0
+    lives = 3
+    camera_x = 0
+
+    game_over = False
+    won = False
+
+
+# ---------------- MAIN LOOP ----------------
+
+while True:
+    clock.tick(FPS)
+
+    # Events
+    for event in pygame.event.get():
+
+        if event.type == pygame.QUIT:
+            pygame.quit()
+            sys.exit()
+
+        if event.type == pygame.KEYDOWN:
+
+            if event.key == pygame.K_ESCAPE:
+                pygame.quit()
+                sys.exit()
+
+            if event.key == pygame.K_SPACE:
+
+                if game_over or won:
+                    reset_game()
+
+                elif on_ground:
+                    velocity_y = jump_power
+                    on_ground = False
+
+            if event.key == pygame.K_r:
+                reset_game()
+
+    keys = pygame.key.get_pressed()
+
+    if not game_over and not won:
+
+        # Movement
+        if keys[pygame.K_LEFT] or keys[pygame.K_a]:
+            player.x -= speed
+
+        if keys[pygame.K_RIGHT] or keys[pygame.K_d]:
+            player.x += speed
+
+        # Gravity
+        velocity_y += gravity
+        player.y += velocity_y
+
+        on_ground = False
+
+        # Ground collision
+        if player.bottom >= GROUND_Y:
+            player.bottom = GROUND_Y
+            velocity_y = 0
+            on_ground = True
+
+        # Platform collision
+        for platform in platforms:
+
+            if player.colliderect(platform):
+
+                if velocity_y > 0:
+                    player.bottom = platform.top
+                    velocity_y = 0
+                    on_ground = True
+
+        # Collect gems
+        for gem in gems[:]:
+
+            if player.colliderect(gem):
+                gems.remove(gem)
+                score += 10
+
+        # Enemy movement
+        for enemy in enemies[:]:
+
+            enemy["rect"].x += enemy["direction"] * 2
+
+            if enemy["rect"].left <= enemy["left"]:
+                enemy["direction"] = 1
+
+            if enemy["rect"].right >= enemy["right"]:
+                enemy["direction"] = -1
+
+            if player.colliderect(enemy["rect"]):
+
+                if velocity_y > 0 and player.bottom < enemy["rect"].centery:
+                    enemies.remove(enemy)
+                    velocity_y = -10
+                    score += 50
+
+                else:
+                    lives -= 1
+                    player.x = max(0, player.x - 100)
+                    player.y = 400
+                    velocity_y = 0
+
+                    if lives <= 0:
+                        game_over = True
+
+        # Spike collision
+        for spike in spikes:
+
+            if player.colliderect(spike):
+                lives -= 1
+                player.x = max(0, player.x - 150)
+                player.y = 400
+                velocity_y = 0
+
+                if lives <= 0:
+                    game_over = True
+
+        # Camera
+        camera_x = max(
+            0,
+            min(player.x - WIDTH // 2, WORLD_WIDTH - WIDTH)
+        )
+
+        # Win
+        if player.x >= WORLD_WIDTH - 100:
+            won = True
+
+        # Falling
+        if player.y > HEIGHT:
+            lives -= 1
+            player.x = 100
+            player.y = 400
+            velocity_y = 0
+
+            if lives <= 0:
+                game_over = True
+
+    # ---------------- DRAW ----------------
+
+    draw_world()
+
+    # Gems
+    for gem in gems:
+        draw_gem(gem.move(-camera_x, 0))
+
+    # Spikes
+    for spike in spikes:
+        draw_spike(spike.move(-camera_x, 0))
+
+    # Enemies
+    for enemy in enemies:
+        draw_enemy(enemy["rect"].move(-camera_x, 0))
+
+    # Player
+    draw_player(player.move(-camera_x, 0))
+
+    # HUD
+    screen.blit(
+        font.render(f"GEMS: {score}", True, BLACK),
+        (20, 20)
+    )
+
+    screen.blit(
+        font.render(f"LIVES: {lives}", True, BLACK),
+        (WIDTH - 150, 20)
+    )
+
+    # Finish marker
+    flag_x = WORLD_WIDTH - 100 - camera_x
+
+    pygame.draw.line(
+        screen,
+        BLACK,
+        (flag_x, 350),
+        (flag_x, GROUND_Y),
+        6
+    )
+
+    pygame.draw.polygon(
+        screen,
+        YELLOW,
+        [
+            (flag_x, 350),
+            (flag_x + 60, 370),
+            (flag_x, 390)
+        ]
+    )
+
+    # Game over
+    if game_over:
+
+        message = big_font.render(
+            "GAME OVER",
+            True,
+            RED
+        )
+
+        screen.blit(
+            message,
+            message.get_rect(
+                center=(WIDTH // 2, HEIGHT // 2)
+            )
+        )
+
+        restart = font.render(
+            "Press SPACE to restart",
+            True,
+            WHITE
+        )
+
+        screen.blit(
+            restart,
+            restart.get_rect(
+                center=(WIDTH // 2, HEIGHT // 2 + 60)
+            )
+        )
+
+    # Victory
+    if won:
+
+        message = big_font.render(
+            "JUNGLE COMPLETE!",
+            True,
+            YELLOW
+        )
+
+        screen.blit(
+            message,
+            message.get_rect(
+                center=(WIDTH // 2, HEIGHT // 2)
+            )
+        )
+
+        final_score = font.render(
+            f"FINAL SCORE: {score}",
+            True,
+            WHITE
+        )
+
+        screen.blit(
+            final_score,
+            final_score.get_rect(
+                center=(WIDTH // 2, HEIGHT // 2 + 60)
+            )
+        )
+
+    pygame.display.update()
