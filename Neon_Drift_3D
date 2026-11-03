@@ -1,0 +1,272 @@
+
+from ursina import *
+import random
+
+app = Ursina()
+
+window.title = "NEON DRIFT 3D"
+window.color = color.rgb(8, 10, 25)
+
+# ---------------- SETTINGS ----------------
+
+ROAD_WIDTH = 12
+CAR_SPEED = 25
+MAX_SPEED = 55
+
+speed = 25
+score = 0
+game_over = False
+
+car_x = 0
+steering = 0
+
+# ---------------- CAMERA ----------------
+
+camera.position = (0, 7, -15)
+camera.rotation_x = 18
+camera.fov = 85
+
+# ---------------- LIGHTING ----------------
+
+DirectionalLight(
+    rotation=(45, -45, 45),
+    color=color.white
+)
+
+AmbientLight(color=color.rgba(100, 100, 140, 255))
+
+# ---------------- WORLD ----------------
+
+Sky(color=color.rgb(10, 10, 35))
+
+road = Entity(
+    model='cube',
+    color=color.rgb(35, 35, 45),
+    scale=(ROAD_WIDTH, 0.2, 200),
+    position=(0, 0, 50)
+)
+
+# Road borders
+for x in [-ROAD_WIDTH / 2, ROAD_WIDTH / 2]:
+    Entity(
+        model='cube',
+        color=color.cyan,
+        scale=(0.2, 0.3, 200),
+        position=(x, 0.15, 50)
+    )
+
+# Road lane markings
+lane_markings = []
+
+for z in range(-20, 180, 10):
+    for x in [-2, 2]:
+        marking = Entity(
+            model='cube',
+            color=color.white,
+            scale=(0.12, 0.05, 4),
+            position=(x, 0.15, z)
+        )
+
+        lane_markings.append(marking)
+
+# ---------------- PLAYER CAR ----------------
+
+car = Entity(
+    model='cube',
+    color=color.rgb(0, 180, 255),
+    scale=(1.8, 0.8, 3.5),
+    position=(0, 0.7, 0)
+)
+
+# Car roof
+Entity(
+    parent=car,
+    model='cube',
+    color=color.rgb(20, 30, 80),
+    scale=(0.65, 0.7, 0.55),
+    position=(0, 0.75, 0.05)
+)
+
+# Headlights
+for x in [-0.6, 0.6]:
+    Entity(
+        parent=car,
+        model='cube',
+        color=color.yellow,
+        scale=(0.25, 0.15, 0.1),
+        position=(x, 0.05, 0.52)
+    )
+
+# ---------------- TRAFFIC ----------------
+
+traffic = []
+
+def spawn_traffic():
+    lane_x = random.choice([-4, 0, 4])
+
+    enemy = Entity(
+        model='cube',
+        color=random.choice([
+            color.red,
+            color.orange,
+            color.violet,
+            color.green
+        ]),
+        scale=(1.8, 0.8, 3.5),
+        position=(lane_x, 0.7, 100)
+    )
+
+    traffic.append(enemy)
+
+# ---------------- UI ----------------
+
+speed_text = Text(
+    text="SPEED: 25",
+    position=(-0.85, 0.45),
+    scale=2,
+    color=color.cyan
+)
+
+score_text = Text(
+    text="SCORE: 0",
+    position=(-0.85, 0.38),
+    scale=1.5,
+    color=color.white
+)
+
+game_over_text = Text(
+    text="",
+    origin=(0, 0),
+    position=(0, 0.1),
+    scale=3,
+    color=color.red
+)
+
+restart_text = Text(
+    text="",
+    origin=(0, 0),
+    position=(0, -0.1),
+    scale=1.5
+)
+
+# ---------------- INPUT ----------------
+
+def input(key):
+    global game_over
+
+    if key == 'r' and game_over:
+        restart_game()
+
+    if key == 'escape':
+        application.quit()
+
+# ---------------- GAME FUNCTIONS ----------------
+
+def crash():
+    global game_over
+
+    game_over = True
+
+    game_over_text.text = "CRASH!"
+    restart_text.text = "Press R to restart"
+
+
+def restart_game():
+    global speed, score, car_x, game_over
+
+    for enemy in traffic:
+        destroy(enemy)
+
+    traffic.clear()
+
+    speed = 25
+    score = 0
+    car_x = 0
+
+    car.position = (0, 0.7, 0)
+
+    game_over = False
+
+    game_over_text.text = ""
+    restart_text.text = ""
+
+# ---------------- MAIN UPDATE ----------------
+
+spawn_timer = 0
+
+def update():
+    global car_x, speed, score, spawn_timer
+
+    if game_over:
+        return
+
+    dt = time.dt
+
+    # Acceleration
+    if held_keys['w'] or held_keys['up arrow']:
+        speed += 20 * dt
+
+    # Braking
+    if held_keys['s'] or held_keys['down arrow']:
+        speed -= 35 * dt
+
+    # Natural slowdown
+    if not held_keys['w'] and not held_keys['up arrow']:
+        speed -= 5 * dt
+
+    speed = clamp(speed, 0, MAX_SPEED)
+
+    # Steering
+    if held_keys['a'] or held_keys['left arrow']:
+        car_x -= 8 * dt
+
+    if held_keys['d'] or held_keys['right arrow']:
+        car_x += 8 * dt
+
+    car_x = clamp(car_x, -4.5, 4.5)
+
+    car.x = lerp(car.x, car_x, dt * 8)
+
+    # Car body tilt
+    car.rotation_z = -car_x * 2
+
+    # Move road markings
+    for marking in lane_markings:
+        marking.z -= speed * dt
+
+        if marking.z < -20:
+            marking.z += 200
+
+    # Spawn traffic
+    spawn_timer += dt
+
+    if spawn_timer > 1.2:
+        spawn_traffic()
+        spawn_timer = 0
+
+    # Move traffic
+    for enemy in traffic[:]:
+        enemy.z -= speed * dt
+
+        # Collision
+        if distance(car.position, enemy.position) < 2.5:
+            crash()
+            return
+
+        # Remove cars behind player
+        if enemy.z < -15:
+            traffic.remove(enemy)
+            destroy(enemy)
+
+            score += 10
+
+    # HUD
+    speed_text.text = f"SPEED: {int(speed)}"
+    score_text.text = f"SCORE: {score}"
+
+    # Camera follows car
+    camera.x = lerp(camera.x, car.x * 0.4, dt * 3)
+
+# ---------------- RUN ----------------
+
+app.run()
